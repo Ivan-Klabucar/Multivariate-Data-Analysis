@@ -1,0 +1,520 @@
+---
+title: "1. laboratorijska vježba"
+subtitle: "Multivarijatna analiza podataka"
+date: "ak. god. 2021/2022"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(GGally)
+library(dplyr)
+library("lattice")
+library(moments)
+library(nortest)
+library(energy)
+library(plotly)
+library(car)
+library('MASS')
+```
+
+*Verzija: 1.0*
+
+## 1. Uvod i upute za predaju
+
+Cilj ove laboratorijske vježbe je primijeniti osnovne koncepte multivarijatne analize podataka, istražiti podatke te ispitati hipoteze. Preduvjet za rješavanje vježbe je osnovno znanje programskog jezika _R_ i rad s _R Markdown_ dokumentima. Sama vježba je koncipirana kao projekt u kojem istražujete i eksperimentirate koristeći dane podatke - ne postoji nužno samo jedan točan način rješavanja svakog podzadatka.
+
+Rješavanje vježbe svodi se na čitanje uputa u tekstu ovog dokumenta, nadopunjavanje blokova kôda (možete dodavati i dodatne blokove kôda ukoliko je potrebno) i ispisivanje rezultata (u vidu ispisa iz funkcija, tablica i grafova). Vježbu radite samostalno, a svoje rješenje branite na terminima koji su vam dodijeljeni u kalendaru. Pritom morate razumjeti teorijske osnove u okviru onoga što je obrađeno na predavanjima i morate pokazati da razumijete sav kôd koji ste napisali.
+
+Vaše rješenje potrebno je predati u sustav _Moodle_ u obliku dvije datoteke: 
+
+1. Ovaj .Rmd dokument s Vašim rješenjem (naziva IME_PREZIME_JMBAG.rmd),  
+2. PDF ili HTML dokument kao izvještaj generiran iz vašeg .Rmd rješenja (također naziva IME_PREZIME_JMBAG).
+
+Rok za predaju je **3. travnja 2022. u 23:59h**. Podsjećamo da bodovi iz laboratorijskih vježbi ulaze i u bodove na ispitnom roku, te da je za polaganje predmeta potrebno imati barem 50% ukupnih bodova iz laboratorijskih vježbi. **Nadoknade laboratorijskih vježbi neće biti organizirane.** Za sva dodatna pitanja svakako se javite na email adresu predmeta: _map@fer.hr_.
+
+## 2. Podatkovni skup
+
+Podatkovni skup koji će biti razmatran u vježbi sadrži bodove studenata na jednom fakultetskom kolegiju. Svakom studentu upisani su bodovi iz dviju laboratorijskih vježbi (**LAB**), pet zadataka međuispita (**MI**), pet zadataka završnog ispita (**ZI**), pet zadataka ispitnog roka (**IR**) i kojoj grupi predavanja pripadaju (**Grupa**).
+
+Studenti mogu položiti kolegij kontinuiranim putem ili na ispitnom roku. Kontinuirani put sastoji se od bodova s laboratorijskih vježbi, međuispita i završnog ispita. Kronološki, 1. laboratorijska vježba održana je prije međuispita, dok je 2. laboratorijska vježba održana između međuispita i završnog ispita. Ispitni rok održan je nakon završnog ispita. Ako student polaže predmet na ispitnom roku, gledaju se samo bodovi s ispitnog roka. Ukupan broj bodova je 100, a bodovi su raspodijeljeni na sljedeći način:
+
+* Kontinuirana nastava:
+  + **LAB**: 20 bodova (0-10 svaka vježba)
+  + **MI** : 40 bodova (0-8 svaki zadatak)
+  + **ZI** : 40 bodova (0-8 svaki zadatak)
+
+* Ispitni rok:
+  + **IR** : 100 bodova (0-20 svaki zadatak)
+
+Za prolazak kolegija potrebno je skupiti **više** od 50 bodova i izaći na obje laboratorijske vježbe (izlazak na vježbe nužan je uvjet i za polaganje ispitnog roka, iako se bodovi ne prenose). Ako student nije pristupio pripadajućem ispitu/laboratorijskoj vježbi, nije upisan podatak (što nije isto kao i 0 bodova). 
+
+## 3. Priprema podataka i eksploratorna analiza
+
+U ovom dijelu vježbe potrebno je učitati podatke i napraviti osnovnu eksploratornu analizu podataka.
+
+### 3.1 Učitavanje podataka
+
+Učitajte podatkovni skup iz datoteke _studenti.csv_ i pripremite podatke za analizu. Pritom obratite pozornost na sljedeće:
+
+* Provjerite jesu li sve varijable očekivanog tipa,
+* Provjerite jesu li vrijednosti unutar zadanog raspona (s obzirom na gore opisano bodovanje),
+* Provjerite zadovoljavaju li bodovi gore opisane uvjete predmeta,
+* Za nedostajuće podatke ispitajte jesu li opravdani te odaberite i primijenite tehniku upravljanja nedostajućim podatcima. 
+
+Nakon što su podatci pripremljeni, analizirajte i ispišite deksriptivne statistike varijabli.
+
+```{r}
+grades <- read.csv('studenti.csv')
+summary(grades)
+```
+Vidimo da MI_5, LAB_1, ZI_5, i LAB_2 trebamo prebaciti u numerički tip podatka.
+
+```{r}
+grades[ , colnames(grades)] <- apply(grades[ , colnames(grades)], 2, # Specify own function within apply
+                                     function(x) as.numeric(as.character(x)))
+head(grades)
+sapply(grades, class)
+```
+```{r}
+summary(grades)
+dim(grades)
+```
+Rasponi vrijednosti MI_2, ZI_1 nisu u skladu s opisom domene.
+
+#### Uklanjanje redaka s vrijednostima izvan dopuštenog raspona
+```{r}
+grades[grades$MI_2 > 8 | grades$ZI_1 < 0,]
+grades <- grades[!(grades$MI_2 > 8 | grades$ZI_1 < 0),]
+```
+Vidimo da su samo dva reda problematična pa smo ta dva reda izbacili iz dataseta.
+
+#### Izbacivanje redaka s problematičnim nedostajućim vrijednostima
+```{r}
+grades[is.na(grades$MI_5) | is.na(grades$ZI_5), ]
+mi_or_zi <- colnames(grades)[colnames(grades) %like% '[M|Z]I']
+grades <- grades[!rowSums(is.na(grades[, mi_or_zi])) > 0,]
+dim(grades)
+```
+Također vidimo da su svi studenti pristupili MI i ZI, no u dva retka za neki od zadataka nedostaje vrijednost. Te retke ćemo izbaciti jer je za njih broj bodova izgubljen.
+
+
+#### Ispitivanje nedostajućih vrijednosti IR
+```{r}
+missing_ir <- grades[rowSums(is.na(grades[,colnames(grades)[colnames(grades) %like% 'IR']])) > 0, ]
+dim(missing_ir)
+```
+Iz ove provjere vidimo da svaki student koji ima 'NA' iz nekog zadatka na IR ima 'NA' na svim zadatcima s IR, to jest da nije prisustvovao IR. Dakle, nedostajuće vrijednosti laboratorijskih vježbi i Ispitnih rokova možemo ostaviti nepromijenjene.
+
+### 3.2 Korelacijska analiza
+
+Razmotrimo studente koji su predmet položili kontinuirano. Izračunajte i vizualizirajte matricu korelacije za njihove bodove na nastavnim aktivnostima. Ponovite isto za studente koji su izašli na ispitni rok. Razmislite o zavisnosti različitih nastavnih aktivnosti koje vidite iz ovih korelacijskih matrica.
+
+```{r}
+has_both_labs <- grades[!rowSums(is.na(grades[, c('LAB_1', 'LAB_2')])) > 0, ] # Izbacimo sve studente koji nisu bili na svim labosa
+dim(has_both_labs) # Izbacili smo 3 studenta
+Mi_or_Zi_or_Lab <- colnames(grades)[colnames(grades) %like% '[M|Z]I|LAB']
+kont_pass <- has_both_labs[rowSums(has_both_labs[, Mi_or_Zi_or_Lab]) > 50, ]
+dim(kont_pass)
+cols_except_IR <- colnames(grades)[!colnames(grades) %like% 'IR']
+kont_pass <- kont_pass[, cols_except_IR]
+corr_matrix <- cor(kont_pass)
+corr_matrix
+
+which(corr_matrix > 0.3 & corr_matrix != 1, arr.ind = TRUE)
+corr_matrix[which(corr_matrix > 0.3 & corr_matrix != 1, arr.ind = TRUE)]
+which(corr_matrix < -0.15, arr.ind = TRUE)
+corr_matrix[which(corr_matrix < -0.15, arr.ind = TRUE)]
+```
+Ako pogledamo korelacije između svakih pojedinih zadataka i laboratorijskih vježbi nećemo pronaći jake zavisnosti između nastavnih aktivnosti. Najjača korelacija jest 0.413 između varijabli ZI_1 te LAB_2. Moguće je da je prvi zadatak završnog ispita provjeravao znanje iz druge laboratorijske vježbe pa su studenti koji su bolje riješili taj labos također postigli bolji rezultat na tom zadatku. Pogledajmo još i korelacije ukupnog rezultata na MI i ZI te vježbi.
+
+```{r}
+just_MI <- colnames(grades)[colnames(grades) %like% 'MI']
+just_ZI <- colnames(grades)[colnames(grades) %like% 'ZI']
+kont_pass$MI_TOTAL <- rowSums(kont_pass[, just_MI])
+kont_pass$ZI_TOTAL <- rowSums(kont_pass[, just_ZI])
+kont_pass_reduced <- kont_pass[, c('MI_TOTAL', 'ZI_TOTAL', 'LAB_1', 'LAB_2')]
+cor(kont_pass_reduced)
+```
+Kada gledamo ukupne rezultate korelacije su još slabije.
+
+Provedimo isti postupak nad studentima s studentskog roka:
+```{r}
+has_both_labs <- grades[!rowSums(is.na(grades[, c('LAB_1', 'LAB_2')])) > 0, ] # Izbacimo sve studente koji nisu bili na svim labosa
+dim(has_both_labs) # Izbacili smo 3 studenta
+just_IR <- colnames(grades)[colnames(grades) %like% 'IR']
+both_labs_and_IR <- has_both_labs[!(rowSums(is.na(has_both_labs[, just_IR])) > 0), ]
+IR_pass <- both_labs_and_IR[rowSums(both_labs_and_IR[, just_IR]) > 50, ]
+dim(IR_pass)
+corr_matrix_IR <- cor(IR_pass)
+corr_matrix_IR
+
+which(corr_matrix_IR > 0.4 & corr_matrix_IR != 1, arr.ind = TRUE)
+corr_matrix_IR[which(corr_matrix_IR > 0.4 & corr_matrix_IR != 1, arr.ind = TRUE)]
+which(corr_matrix_IR < -0.3, arr.ind = TRUE)
+corr_matrix_IR[which(corr_matrix_IR < -0.3, arr.ind = TRUE)]
+```
+Najjača korelacija koju zamjećujemo jest 0.501 između IR_5 te ZI_5, to možda ukazuje da ti zadatci ispituju istu kompetenciju.
+
+```{r}
+just_MI <- colnames(grades)[colnames(grades) %like% 'MI']
+just_ZI <- colnames(grades)[colnames(grades) %like% 'ZI']
+IR_pass$MI_TOTAL <- rowSums(IR_pass[, just_MI])
+IR_pass$ZI_TOTAL <- rowSums(IR_pass[, just_ZI])
+IR_pass$IR_TOTAL <- rowSums(IR_pass[, just_IR])
+kont_pass_reduced <- IR_pass[, c('MI_TOTAL', 'ZI_TOTAL', 'IR_TOTAL', 'LAB_1', 'LAB_2')]
+cor(kont_pass_reduced)
+```
+Kada gledamo ukupne brojeve bodova ne primjećujemo jake korelacije. Ipak, korelacija MI_TOTAL i ZI_TOTAL iznosi -0.447 što može biti uzrokovano time da studenti koji polože predmet na roku "pobace" na jednom od kolokvija, (da su ostvarili dobar rezultat na oba kolokvija ne bi izašli na rok).
+
+Prikažite upareni graf za zadatke s ispitnog roka. Na dijagonalama prikažite empirijsku distribuciju podataka, a na elementima izvan dijagonala prikažite grafove raspršenja za parove varijabli. Razmislite o karakteristikama grafova i razmislite postoje li primjeri koji odskaču od ostalih.
+
+```{r}
+IR_data <- grades[!(rowSums(is.na(grades[, just_IR])) > 0), ]
+IR_data <- IR_data[, just_IR]
+ggpairs(IR_data, diag = list(continuous = "barDiag"))+theme_bw()+ geom_histogram(aes(y = ..density..))
+```
+Vidimo da prva tri zadatka s roka imaju puno uže distribucije od preostalih zadataka IR_4 i IR_5 koji poprimaju dosta šire raspone vrijednosti. Također uočavamo da neke distribucije poprimaju ne zvonolike oblike: IR_1, te bimodalna distribucija IR_4. Vrlo je vjerojatno da točka u donjem lijevom kutu svakog grafa pripada istom retku, to ćemo provjeriti kasnije.
+
+### 3.3 Statistička udaljenost
+
+Izračunajte procjene vektora očekivanja i matrice kovarijance za zadatke s ispitnog roka, kao i statističke udaljenosti svih primjera u odnosu na procijenjeno očekivanje i kovarijancu. Ispitajte postoje li stršeće vrijednosti koje su statistički značajne. 
+
+```{r}
+colMeans(IR_data)
+cov(IR_data)
+stat_dist <- mahalanobis(IR_data, colMeans(IR_data), cov(IR_data))
+boxplot(stat_dist, main="Mahalanobis distances of IR_data", ylab="Mahalanobis")
+hist(stat_dist)
+IR_data[stat_dist > 20,]
+stat_dist[stat_dist > 20]
+```
+Vidimo da postoji samo jedan outlier po statističkoj udaljenosti te je to upravo redak kojeg smo detektirali i u prošlom zadatku. Ipak, ovaj redak vjerojatno nije kriv, već samo predstavlja studenta koji je ostavio sve zadatke na roku praznima. Ovakav događaj je sasvim moguć pa taj redak nećemo izbaciti iz analize, ali ćemo ga imati na umu pri provedbi daljnjih istraživanja.
+
+## 4. Analiza podataka 
+
+### 4.1 Vizualizacija i deskriptivna statistika
+
+Analizirajte u podatcima sljedeća istraživačka pitanja, koristeći odgovarajuće vizualizacije i deskriptivne statistike ili druge tehnike (dodatno možete provesti i statistički test - nije obavezno).
+
+* Imaju li grupe utjecaj na ukupne bodove iz kontinuirane nastave (postoje li grupe koje su uspješnije od ostalih)? Vrijedi li isto za bodove na roku?
+
+```{r}
+grades_no_na <- grades[!(rowSums(is.na(grades[ ,Mi_or_Zi_or_Lab])) > 0), ]
+grades_no_na$KONT_TOTAL <- rowSums(grades_no_na[, Mi_or_Zi_or_Lab])
+boxplot(KONT_TOTAL~Grupa, grades_no_na, main="Ukupni brojevi bodova kontinuirane nastave", col="azure")
+means <- tapply(grades_no_na$KONT_TOTAL,grades_no_na$Grupa,mean)
+points(means,col="coral1",pch=16)
+
+grades_no_na %>%
+  group_by(Grupa)%>%
+  summarise(mean = mean(KONT_TOTAL), median=median(KONT_TOTAL), std=sd(KONT_TOTAL))
+```
+Iz box plota možemo zaključiti da grupa 1 postiže bolje rezultate od na kontinuiranoj nastavi od grupa 2 i 3. Narančasta točka predstavlja srednju vrijednost a crna crta medijan. Po tim mjerama grupe 2 i 3 su otprilike iste. Ipak desni rep grupe 2 jest teži od grupe 3.
+
+```{r}
+grades_no_na_IR <- grades[!(rowSums(is.na(grades[ ,just_IR])) > 0), ]
+grades_no_na_IR$IR_TOTAL <- rowSums(grades_no_na_IR[, just_IR])
+boxplot(IR_TOTAL~Grupa, grades_no_na_IR, main="Ukupni brojevi bodova na ispitnom roku", col="azure")
+means <- tapply(grades_no_na_IR$IR_TOTAL,grades_no_na_IR$Grupa,mean)
+points(means,col="coral1",pch=16)
+
+grades_no_na_IR %>%
+  group_by(Grupa)%>%
+  summarise(mean = mean(IR_TOTAL), median=median(IR_TOTAL), std=sd(IR_TOTAL))
+```
+Poredak uspješnosti grupa se obrće na ispitnom roku. Grupe 2 i 3 definitivno postižu bolje rezultate od grupe 1, no teško je reći je li prednost grupe 3 nad grupom 2 značajna.
+
+* Postoji li povezanost između uspjeha studenata na međuispitu i završnom ispitu (vrijedi li da su uspješniji studenti na MI ujedno uspješniji i na ZI)?
+
+```{r}
+MI_and_ZI <- colnames(grades)[colnames(grades) %like% 'M|ZI']
+grades_MI_ZI <- grades[!(rowSums(is.na(grades[ ,MI_and_ZI])) > 0), ]
+grades_MI_ZI$MI_TOTAL <- rowSums(grades_MI_ZI[, just_MI])
+grades_MI_ZI$ZI_TOTAL <- rowSums(grades_MI_ZI[, just_ZI])
+plot(grades_MI_ZI$MI_TOTAL, grades_MI_ZI$ZI_TOTAL, main='Bodovi na MI i ZI', xlab='MI', ylab='ZI', col='darkblue')
+cor(grades_MI_ZI$MI_TOTAL, grades_MI_ZI$ZI_TOTAL)
+```
+Iz scatter plota te niske korelacije ove dvije varijable možemo zaključiti da ne postoji povezanost između uspjeha ispitima MI i ZI.
+
+* Postoji li povezanost između uspjeha studenata na nekim zadatcima na ispitima i pojedinim laboratorijskim vježbama? Razmislite koji su mogući uzroci ovakvih zavisnosti, ako postoje.
+
+Da, već smo utvrdili da u zadatku korelacijska analiza postoje određene korelacije između uspjeha na nekim laboratorijskim vježbama i određenim ispitnim zadatcima. Točnije, uspjeh na LAB_1 koreliran je s uspjehom na MI_1, a uspjeh na LAB_2 s uspjehom na ZI_1 te je to uočeno na cijeloj studentskoj populaciji. Dodatno, među studentima koji su izašli na ispitni rok postoji negativna korelacija između LAB_1 i ZI_1. Obrazloženje pozitivnih korelacija jest preklapanje gradiva labosa i zadataka. Teže je utvrditi zašto u određenim slučajevima dolazi do negativne korelacije.
+
+Vizualizirajmo neke od najjačih korelacija:
+```{r}
+x <- na.omit(grades[, c('LAB_1', 'MI_1')])
+x_cor = round(cor(x$LAB_1, x$MI_1), 3)
+ggplot(x, aes(x=LAB_1, y=MI_1) ) +
+  stat_density_2d(aes(fill = ..density..), geom = "raster", contour = FALSE) +
+  scale_fill_distiller(palette= "Spectral", direction=-1) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  ggtitle(glue::glue('Bodovi na LAB_1 i MI_1, cor={x_cor}')) +
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+x <- na.omit(grades[, c('LAB_2', 'ZI_1')])
+x_cor = round(cor(x$LAB_2, x$ZI_1), 3)
+ggplot(x, aes(x=LAB_2, y=ZI_1) ) +
+  stat_density_2d(aes(fill = ..density..), geom = "raster", contour = FALSE) +
+  scale_fill_distiller(palette= "Spectral", direction=-1) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  ggtitle(glue::glue('Bodovi na LAB_2 i ZI_1, cor={x_cor}')) +
+  theme(plot.title = element_text(hjust = 0.5))
+
+x <- na.omit(grades[, c('LAB_1', 'ZI_1', just_IR)])
+x_cor = round(cor(x$LAB_1, x$ZI_1), 3)
+ggplot(x, aes(x=LAB_1, y=ZI_1) ) +
+  stat_density_2d(aes(fill = ..density..), geom = "raster", contour = FALSE) +
+  scale_fill_distiller(palette= "Spectral", direction=-1) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  ggtitle(glue::glue('Bodovi na LAB_1 i ZI_1 među studentima koji su izašli na IR, cor={x_cor}')) +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Postavite i analizirajte na ovaj način još barem jedno vlastito istraživačko pitanje.
+
+Prati li ukupan broj bodova na ZI, MI i laboratorijskim vježbama normalnu distribuciju?
+
+```{r}
+x <- na.omit(grades[, Mi_or_Zi_or_Lab])
+x$TOTAL <- rowSums(x[, Mi_or_Zi_or_Lab])
+hist(x$TOTAL, col="azure")
+qqnorm(x$TOTAL, pch = 1, frame = FALSE)
+qqline(x$TOTAL, col = "steelblue", lwd = 2)
+skewness(x$TOTAL)
+kurtosis(x$TOTAL)
+shapiro.test(x$TOTAL)
+ad.test(x$TOTAL)
+```
+Na temelju histograma i qqplota možemo zaključiti da je distribucija ukupnog zbroja zakrivljena u lijevo. Kurtosis distribucije poprilično dobro odgovara normalnoj distribuciji. Iz rezultata Shapiro–Wilk i Anderson–Darling testa možemo odbaciti hipotezu da uzorak dolazi iz normalne distribucije s 0.05 razinom značajnosti no ne i s 0.01. Ipak iz qqplota vidimo da odstupanje nije pretjerano izraženo pa u daljnjoj analizi pretpostavka normalnosti ne bi trebala biti previše narušena.
+
+
+Prate li brojevi bodova LAB_2, i LAB_1 multivarijatnu normalnu distribuciju?
+```{r}
+x <- na.omit(grades[, c('LAB_1', 'LAB_2')])
+ggplot(x, aes(x=x$LAB_1, y=x$LAB_2))+
+  geom_point(alpha = .2) +
+  geom_density_2d()+
+  theme_bw()
+cov(x)
+mvnorm.etest(x, R=200)
+
+dens <- kde2d(x$LAB_1, x$LAB_2)
+
+fig <- plot_ly(x = dens$x,
+        y = dens$y,
+        z = dens$z) %>% add_surface()
+fig
+```
+Bodovi očito nisu normalno distribuirani s obzirom da poprimaju diskretne vrijednosti, te to potvrđuje i niska p vrijednost E-testa.
+
+### 4.2. Regresijska analiza
+
+Razmotrimo u kakvom su odnosu zadatci ispitnog roka s ostalim aktivnostima iz kontinuirane nastave. Istražite odnos koristeći model multivarijatne linearne regresije. Procijenite model gdje su zavisne varijable bodovi zadataka s ispitnog roka, odaberite konačni skup ulaznih varijabli i provjerite adekvatnost modela.
+
+```{r}
+all_except_Grupa <- colnames(grades)[!(colnames(grades) %like% 'G')]
+x <- na.omit(grades[, all_except_Grupa])
+mlm.fit <- lm(cbind(IR_1, IR_2, IR_3, IR_4, IR_5) ~ ., data = x)
+summary(mlm.fit)
+```
+S obzirom na izrazito niske vrijednosti R-squared mjere možemo zaključiti da naši modeli loše objašnjavaju varijabilnost u podatcima, najviše oko 40%. Najjače veze u podatcima pronalazimo tako da pogledamo regresore s najvećim vrijednostima koeficijenata:
+
+IR_1 ~ MI_1 \
+IR_2 ~ MI_4 \
+IR_3 ~ LAB_1, ZI_1, ↓LAB_2 \
+IR_4 ~ ZI_2 \
+IR_5 ~ ZI_5 \
+
+Ove veze u skladu su s rezultatima korelacijske analize u kojoj smo utvrdili da su dotične varijable značajno korelirane.
+
+
+Provjerimo imaju li stvarno svi regresori značajan utjecaj na model na razini signifikantnosti od 1%:
+
+```{r}
+Anova(mlm.fit)
+```
+P-vrijednost testa je dovoljno velika da ne možemo odbaciti nultu hipotezu da kompleksniji model ne donosi značajno poboljšanje u odnosu na jednostavniji model (raz. sign. od 1%). Prema tome, odlučujemo se za model bez regresora ZI_3, te ZI_4.
+
+Izbacimo ZI_3, i ZI_4 te ponovimo analizu:
+```{r}
+mlm2.fit <- lm(cbind(IR_1, IR_2, IR_3, IR_4, IR_5) ~ . - ZI_3 - ZI_4, data = x)
+anova(mlm.fit, mlm2.fit)
+lh.out <- linearHypothesis(mlm.fit, hypothesis.matrix = c("ZI_3 = 0", "ZI_4 = 0"))
+lh.out
+```
+Temeljem p-vrijednosti provedenih testova dolazimo do istog zaključka, tj. da se trebamo odlučiti za jednostavniji model.
+
+Provjerimo još značajnost koeficijenata jednostavnijeg modela:
+```{r}
+Anova(mlm2.fit)
+```
+Svi regresori u jednostavnijem modelu značajni su na razini signifikantnosti 1%.
+
+Kako bismo provjerili adekvatnost modela proučit ćemo grafove reziduala:
+```{r}
+## Preuzeto iz auditorne vjezbe 4
+## define our own "rstandard" method for "mlm" class
+rstandard.mlm2 <- function (model) {
+  Q <- with(model, qr.qy(qr, diag(1, nrow = nrow(qr$qr), ncol = qr$rank)))  ## Q matrix
+  hii <- rowSums(Q ^ 2)  ## diagonal of hat matrix QQ'
+  RSS <- colSums(model$residuals ^ 2)  ## residual sums of squares (for each model)
+  sigma <- sqrt(RSS / model$df.residual)  ##  ## Pearson estimate of residuals (for each model)
+  pointwise_sd <- outer(sqrt(1 - hii), sigma)  ## point-wise residual standard error (for each model)
+  model$residuals / pointwise_sd  ## standardised residuals
+  }
+
+
+plot(fitted(mlm2.fit), rstandard(mlm2.fit), col = as.numeric(col(fitted(mlm2.fit))), pch = 19)
+abline(h=0)
+legend("bottomright", legend = paste0("IR ", 1:ncol(fitted(mlm2.fit))), pch = 19,
+       col = 1:ncol(fitted(mlm2.fit)), text.col = 1:ncol(fitted(mlm2.fit)))
+```
+Generalno reziduali izgledaju nasumično raspršeni oko nule što ukazuje na dobar fit modela. Ipak, primjećujemo outlier u grupama reziduala IR_1, IR_2, te IR_3. Još jedno odstupanje od očekivanog je ljevkast oblik reziduala IR_1. Drugim riječima s porastom predviđene vrijednosti IR_1 varijanca reziduala pada.
+
+To možemo bolje vidjeti na sljedećem grafu:
+```{r}
+plot(fitted(mlm2.fit)[, 'IR_1'], rstandard(mlm2.fit)[, 'IR_1'], col = 'darkblue', pch = 19)
+abline(h=0)
+```
+
+Pogledajmo kojim retcima iz matrice grades pripadaju outlieri reziduala:
+```{r}
+
+st_r <- rstandard(mlm2.fit)
+which(st_r[, c('IR_2', 'IR_3', 'IR_1')] < -3, arr.ind = TRUE)
+grades[35,]
+```
+Vidimo da su svi outlieri potekli od istog retka kojeg smo već prije detektirali kao outlier. U pitanju je redak koji ima vrijednost 0 za sve zadatke na ispitnom roku. Iako ovaj redak vjerojatno nije pogrešan izbacit ćemo ga iz našeg modela jer ne želimo da previše "povuče" koeficijente regresora.
+
+```{r}
+grades2 <- grades[-35,]
+x2 <- na.omit(grades2[, all_except_Grupa])
+mlm_f.fit <- lm(cbind(IR_1, IR_2, IR_3, IR_4, IR_5) ~ . - ZI_3 - ZI_4, data = x2)
+summary(mlm_f.fit)
+
+plot(fitted(mlm_f.fit), rstandard(mlm_f.fit), col = as.numeric(col(fitted(mlm_f.fit))), pch = 19)
+abline(h=0)
+legend("bottomright", legend = paste0("IR ", 1:ncol(fitted(mlm_f.fit))), pch = 19,
+       col = 1:ncol(fitted(mlm_f.fit)), text.col = 1:ncol(fitted(mlm_f.fit)))
+```
+Standardizirani reziduali još uvijek izgledaju kao nasumičan pojas oko nule, osim već zamijećene deformacije IR_1 reziduala.
+
+
+Provjerimo normalnost reziduala:
+```{r}
+st_r <- rstandard(mlm_f.fit)
+for (val in colnames(st_r)) {
+  qqnorm(st_r[,val], pch = 1, frame = FALSE, main=glue::glue('{val} residuals QQ plot'))
+  qqline(st_r[,val], col = "steelblue", lwd = 2)
+}
+
+```
+Iz QQ plotova možemo zaključiti da su pretpostavke o normalnoj distribuiranosti reziduala u određenoj mjeri prekršene:
+
+IR_1 -> pretežak desni rep \
+IR_2 -> dobro slaganje s teoretskom distribucijom \
+IR_3 -> malo pretežak lijevi rep \
+IR_4 -> malo pretanki repovi \
+IR_5 -> pretežak lijevi rep \
+
+
+
+Iz toga možemo zaključiti da ne možemo računati intervali pouzdanosti bez određene mjere opreza. Moguće je da, zbog loših temelja, ne reflektiraju stvarnu situaciju.
+
+Ovakav rezultat nije iznenađujuć s obzirom da naš model objašnjava relativno malo varijance podataka. Trebali bi potražiti još relevantnih regresora. Npr prosjek, uspjeh na ostalim kolegijima, grupa itd.
+
+Najgore odstupanje od normalnosti primjećujemo za IR_1 i IR_5 reziduale stoga moramo biti najoprezniji u predikciji tih varijabli.
+
+
+Provjerimo zavisnost reziduala IR_5 i IR_1 o nezavisnim varijablama i prediktivnoj vrijednosti.
+IR_5:
+```{r}
+just_MI <- colnames(grades)[colnames(grades) %like% 'MI']
+just_rel_ZI <- c('ZI_1', 'ZI_2', 'ZI_5')
+just_IR <- colnames(grades)[colnames(grades) %like% 'IR']
+just_LAB <- colnames(grades)[colnames(grades) %like% 'LAB']
+par(mfrow=c(3,2), mar=c(3.3,3.1,1,0), mgp=c(1.5, 0.5, 0))
+for (val in just_MI) {
+  plot(x2[, val], rstandard(mlm_f.fit)[, 'IR_5'], xlab=val, ylab='Standardized residuals', col = 'darkblue', pch = 19, main=glue::glue('IR_5 residuals by {val}'))
+  abline(h=0)
+}
+
+par(mfrow=c(3,2), mar=c(3.3,3.1,1,0), mgp=c(1.5, 0.5, 0))
+for (val in just_rel_ZI) {
+  plot(x2[, val], rstandard(mlm_f.fit)[, 'IR_5'], xlab=val, ylab='Standardized residuals', col = 'darkblue', pch = 19, main=glue::glue('IR_5 residuals by {val}'))
+  abline(h=0)
+}
+
+par(mfrow=c(2,1), mar=c(3.3,3.1,1,0), mgp=c(1.5, 0.5, 0))
+for (val in just_LAB) {
+  plot(x2[, val], rstandard(mlm_f.fit)[, 'IR_5'], xlab=val, ylab='Standardized residuals', col = 'darkblue', pch = 19, main=glue::glue('IR_5 residuals by {val}'))
+  abline(h=0)
+}
+
+
+par(mfrow=c(3,2), mar=c(3.3,3.1,1,0), mgp=c(1.5, 0.5, 0))
+for (val in colnames(fitted(mlm_f.fit))) {
+  plot(fitted(mlm_f.fit)[, val], rstandard(mlm_f.fit)[, 'IR_5'], xlab=val, ylab='Standardized residuals', col = 'darkblue', pch = 19, main=glue::glue('IR_5 residuals by predicted {val}'))
+  abline(h=0)
+}
+```
+
+IR_1:
+```{r}
+par(mfrow=c(3,2), mar=c(3.3,3.1,1,0), mgp=c(1.5, 0.5, 0))
+for (val in just_MI) {
+  plot(x2[, val], rstandard(mlm_f.fit)[, 'IR_1'], xlab=val, ylab='Standardized residuals', col = 'darkblue', pch = 19, main=glue::glue('IR_1 residuals by {val}'))
+  abline(h=0)
+}
+
+par(mfrow=c(3,2), mar=c(3.3,3.1,1,0), mgp=c(1.5, 0.5, 0))
+for (val in just_rel_ZI) {
+  plot(x2[, val], rstandard(mlm_f.fit)[, 'IR_1'], xlab=val, ylab='Standardized residuals', col = 'darkblue', pch = 19, main=glue::glue('IR_1 residuals by {val}'))
+  abline(h=0)
+}
+
+par(mfrow=c(2,1), mar=c(3.3,3.1,1,0), mgp=c(1.5, 0.5, 0))
+for (val in just_LAB) {
+  plot(x2[, val], rstandard(mlm_f.fit)[, 'IR_1'], xlab=val, ylab='Standardized residuals', col = 'darkblue', pch = 19, main=glue::glue('IR_1 residuals by {val}'))
+  abline(h=0)
+}
+
+par(mfrow=c(3,2), mar=c(3.3,3.1,1,0), mgp=c(1.5, 0.5, 0))
+for (val in colnames(fitted(mlm_f.fit))) {
+  plot(fitted(mlm_f.fit)[, val], rstandard(mlm_f.fit)[, 'IR_1'], xlab=val, ylab='Standardized residuals', col = 'darkblue', pch = 19, main=glue::glue('IR_1 residuals by predicted {val}'))
+  abline(h=0)
+}
+```
+
+Ne primjećujemo nikakve problematične zavisnosti osim već uočene nekonstantnosti varijance reziduala IR_1 s obzirom na ^IR_1.
+
+Provjerimo potječu li problematični reziduali IR_1 i IR_5 iz istog redaka (jer ih je otprilike jednako):
+```{r}
+which(rstandard(mlm_f.fit)[, 'IR_5'] < -1, arr.ind = FALSE)
+which(rstandard(mlm_f.fit)[, 'IR_1'] > 1.1, arr.ind=FALSE)
+```
+Ne pripadaju.
+
+Naš model možemo dalje koristiti za predikcije:
+```{r}
+newdata <- data.frame(MI_1=6,  MI_2=7,  MI_3=5,  MI_4=8,  MI_5=8,  LAB_1=9, ZI_1=2,  ZI_2=2,  ZI_3=3,  ZI_4=4,  ZI_5=1,  LAB_2=5)
+predict(mlm_f.fit, newdata, interval="confidence") 
+predict(mlm_f.fit, newdata, interval="predict")
+
+
+lm_ir5.fit <- lm(IR_5 ~ MI_1 + MI_2 + MI_3 + MI_4 + MI_5 + LAB_1 + ZI_1 + ZI_2 + ZI_3 + ZI_4 + ZI_5 + LAB_2 - ZI_3 - ZI_4, data = x2)
+summary(lm_ir5.fit)
+predict(lm_ir5.fit, newdata, interval="confidence") 
+predict(lm_ir5.fit, newdata, interval="predict")
+```
+
+Nažalost u R-u još ne postoje gotove funkcije za računanje confidence elipsoide oko predikcija, no s obzirom da naš model objašnjava malo od ukupne varijance podataka možemo očekivati jako veliku elipsoidu pouzdanosti. To u praksi znači da nam model nije koristan u predviđanju budućih vrijednosti. Za ilustraciju izračunali smo interval pouzdanosti sredine i interval pouzdanosti predikcije samo za zavisnu varijablu IR_5 za neki naš izmišljen primjer. Vidimo da nam ti intervali nisu uopće korisni jer su u oba slučaja značajno širi od interkvartilnog raspona distribucije IR_5 [5.0, 7.5].
