@@ -1,15 +1,30 @@
 ---
 title: "2. laboratorijska vježba"
+author: "Ivan Klabucar"
 subtitle: "Multivarijatna analiza podataka"
 date: "ak. god. 2021/2022"
 output:
+  pdf_document: default
   html_document:
     df_print: paged
-  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library("reshape2")
+library(GGally)
+library(psych)
+library(data.table)
+library(dplyr)
+library("lattice")
+library(moments)
+library(nortest)
+library(energy)
+library(plotly)
+library(car)
+library('MASS')
+library(hrbrthemes)
 ```
 
 
@@ -59,22 +74,78 @@ Pri modeliranju zajedničkog kretanja i rizika vrijednosnica, najčešće se kor
 
 ### 2.1. Učitavanje podataka i korelacijska analiza
 Podaci se nalaze u datoteci "ETFprices.csv". Učitajte ih, provjerite ispravnost, izračunajte tjedne povrate te vizualizirajte matricu korelacije povrata - razmislite o grupama i korelacijskim strukturama koje u njoj vidite. U ostatku laboratorijske vježbe također koristite povrate, a ne cijene. 
-```{r}
-#  Vaš kôd ovdje 
+```{r ucitavanje podataka}
+ETF.prices = read.csv(file = 'ETFprices.csv')
+ETF.prices$Time = as.Date(ETF.prices$Time, "%d-%b-%Y")
+
+summary(ETF.prices)
+head(ETF.prices)
 ```
 
+```{r racunanje povrata}
+n = nrow(ETF.prices)
+p = ncol(ETF.prices)
+
+ETF_returns = ((data.matrix(ETF.prices[2:n,2:p]) - data.matrix(ETF.prices[1:(n-1),2:p]))/data.matrix(ETF.prices[1:(n-1),2:p]))
+
+ETF_returns = cbind(ETF.prices$Time[2:n],as.data.frame(ETF_returns))
+names(ETF_returns)[1] <- "Time"
+head(ETF_returns)
+```
+```{r korelacija}
+R = cor(ETF_returns[,2:p])
+ggcorr(ETF_returns,label = TRUE, label_size=3, cex=3)
+```
 ## 3. Analiza glavnih komponenti
 Cilj ovog zadatka je analizirati kretanje danih ETF-ova i izračunati glavne komponente koje objašnjavaju njihovu dinamiku.
 
 ### 3.1. Glavne komponente
 Izračunajte glavne komponente matrice korelacije i izračunajte koliki udio varijance objašnjavaju. Odredite broj glavnih komponenti koje ćete zadržati u analizi. Grafički prikažite i usporedite koeficijente prvih nekoliko komponenti.
-```{r}
-#  Vaš kôd ovdje 
+```{r svojstvene vrijednosti i vektori korelacije}
+
+ev_R = eigen(R)
+
+lambda_R = ev_R$values
+e_R = ev_R$vectors
+
+lambda_R
+
+sum(lambda_R)
+tr(R)
+sum(lambda_R[1:3])/sum(lambda_R)
+sum(lambda_R[1:4])/sum(lambda_R)
+```
+
+```{r scree plot}
+
+#scree plot za glavne komponente kovarijance
+plot(lambda_R, type = "b", cex.lab=0.75, cex.main=0.75, cex.axis=0.75, xlab="i", ylab=expression(lambda["i"]), main='Scree plot svojstvenih vrijednosti korelacijske matrice')
+grid()
+
+```
+```{r vizualizacija svojstvenih vektora}
+midpts <- barplot(e_R[,1], col="#69b3a2", main="1. svojstveni vektor korelacijske matrice") # assign result to named object
+axis(1, at = midpts, labels=colnames(ETF_returns[,2:p]), cex.axis=0.47) # shrinks axis labels
+
+midpts <- barplot(e_R[,2], col="#69b3a2", main="2. svojstveni vektor korelacijske matrice") # assign result to named object
+axis(1, at = midpts, labels=colnames(ETF_returns[,2:p]), cex.axis=0.47) # shrinks axis labels
+
+midpts <- barplot(e_R[,3], col="#69b3a2", main="3. svojstveni vektor korelacijske matrice") # assign result to named object
+axis(1, at = midpts, labels=colnames(ETF_returns[,2:p]), cex.axis=0.47) # shrinks axis labels
+
+midpts <- barplot(e_R[,4], col="#69b3a2", main="4. svojstveni vektor korelacijske matrice") # assign result to named object
+axis(1, at = midpts, labels=colnames(ETF_returns[,2:p]), cex.axis=0.47) # shrinks axis labels
+
 ```
 
 Prikažite graf raspršenja prve dvije glavne komponente i proučite možete li primijetiti neke grupe fondova. 
 ```{r} 
-#  Vaš kôd ovdje 
+
+Y = R%*%e_R
+plot(Y[,1],Y[,2], pch = 20, main="graf raspršenja fondova po prve dvije glavne komponente", cex=0.7, cex.lab=0.5, cex.axis=0.5, xlab=expression("Prva komponenta"), ylab=expression("Druga komponenta"), xlim=c(-1.8,3.9), ylim=c(-2,0.2))
+grid()
+#moguce je dodati i tekst - pritom treba pripaziti na citljivost
+text(Y[,1]+0.06,Y[,2]-0.04, colnames(ETF_returns[,2:p]),cex=0.4)
 ```
 
 ### 3.2. Svojstveni portfelji
@@ -88,23 +159,131 @@ Izračunajte skalirane svojstvene portfelje $\tilde{w}$ koji proizlaze iz prve d
 
 
 ```{r}
-#  Vaš kôd ovdje 
+normalize <- function(x) {x / sqrt(sum(x^2))}
+w1 = normalize(e_R[,1]*sign(sum(e_R[,1])))
+w2 = normalize(e_R[,2]*sign(sum(e_R[,2])))
+
+w1_returns = as.matrix(ETF_returns[,2:p]) %*% w1
+w2_returns = as.matrix(ETF_returns[,2:p]) %*% w2
+w1_price = Reduce(function(x,r) {x * (1+r)}, w1_returns, init=100, accumulate=T)
+w2_price = Reduce(function(x,r) {x * (1+r)}, w2_returns, init=100, accumulate=T)
+
+
+chron_prices = data.frame(date = ETF.prices$Time, w1_price = w1_price, w2_price = w2_price)
+theme_set(theme_minimal())
+ggplot(chron_prices, aes(x=date)) + 
+  geom_line(aes(y = w1_price), color = "brown4") + 
+  geom_line(aes(y = w2_price), color="darkolivegreen4") +
+  scale_x_date(date_breaks = "1 year", date_labels ="%Y") +
+  labs(title="Vrijednost prva dva svojstvena portfelja kroz vrijeme", y="Vrijednost ($)", x="time")
 ```
 
 ## 4. Faktorska analiza
 
 ### 4.1. Metode procjena koeficijenata modela
 Na danim podacima odredite broj faktora te procijenite faktorski model pomoću metode glavnih komponenti i metode najveće izglednosti. Usporedite procjene ove dvije metode. Koja Vam se čini bolja? Što možete zaključiti iz vrijednosti faktora? Pronađite procjenu vrijednosti faktora koja daje najbolju interpretabilnost.
+
+#### Metoda glavnih komponenti
 ```{r}
-#  Vaš kôd ovdje 
+L = sqrt(lambda_R[1])*e_R[,1]
+L = cbind(L,sqrt(lambda_R[2])*e_R[,2])
+L = cbind(L,sqrt(lambda_R[3])*e_R[,3])
+
+h = rowSums(L^2)
+psi = 1-h
+residual = R - L%*%t(L) - diag(psi)
+
+df_factors <- as.data.frame(L)
+rownames(df_factors) <- colnames(ETF_returns[,2:p])
+colnames(df_factors) <- c('F1', 'F2', 'F3')
+
+df_h <- as.data.frame(h)
+rownames(df_h) <- colnames(ETF_returns[,2:p])
+colnames(df_h) <- c('communality')
+
+df_psi <- as.data.frame(psi)
+rownames(df_psi) <- colnames(ETF_returns[,2:p])
+colnames(df_psi) <- c('psi')
+
+print(df_factors)
+print(df_h)
+print(df_psi)
+
+ggplot(data = melt(residual), aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile() +
+  scale_fill_gradient2(low="blue", high="coral")+
+  #scale_fill_gradient(low="white", high="blue") +
+  theme_ipsum() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  labs(title="Rezidual korelacijske matrice")
+
+which(residual < -0.2, arr.ind = TRUE)
+which(residual > 0.2, arr.ind = TRUE)
 ```
+
+```{r}
+ round(residual,digits = 3)
+```
+
+#### Metoda najveće izglednosti (MLE)
+```{r}
+fa = factanal(factors = 3, covmat = R,rotation="none")
+
+fa$loadings
+```
+
+```{r}
+rowSums(fa$loadings^2)
+fa$uniqueness
+```
+
+```{r}
+residual = R - fa$loadings%*%t(fa$loadings) - diag(fa$uniquenesses)
+
+ggplot(data = melt(residual), aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile() +
+  scale_fill_gradient2(low="blue", high="coral")+
+  #scale_fill_gradient(low="white", high="blue") +
+  theme_ipsum() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  labs(title="Rezidual korelacijske matrice")
+```
+
+```{r}
+round(residual,digits = 3)
+```
+
+```{r mle - rotacija}
+
+fa = factanal(factors = 3, covmat = R,rotation="varimax")
+
+print(fa$loadings)
+
+```
+
+Za razliku od metode glavnih komponenti, u slučaju promjene broja faktora u metodi najveće izglednosti, promijenit će se i sve procjene koeficijenata faktorskog modela.
 
 ### 4.2. Specifične varijance faktora
 Izračunajte specifične varijance faktora za model s dva faktora i model s tri faktora. Pomoću stupčastog dijagrama prikažite i usporedite dobivene vrijednosti. 
 ```{r}
-#  Vaš kôd ovdje 
-```
+fa2 = factanal(factors = 2, covmat = R,rotation="varimax", lower = 0.1)
+fa3 = factanal(factors = 3, covmat = R,rotation="varimax")
 
+
+
+
+
+barplot(rbind(fa2$uniqueness,fa3$uniqueness, df_psi$psi), beside=TRUE, col=c("cornflowerblue", "bisque", "red"), main="Specifične varijance",ylab="Var", cex.axis = 0.75, cex.names = 0.45, cex.main=0.85, cex.lab=0.75)
+legend("topright", 
+       legend = c("2 Faktora","3 Faktora", "PCA"), 
+       fill = c("cornflowerblue", "bisque", "red"),
+       cex = 0.65)
+
+```
+```{r}
+print(fa2$loadings)
+print(fa3$loadings)
+```
 ## 5. Diskriminantna analiza
 Financijska tržišta su od listopada 2007. do srpnja 2009. godine bila u krizi. U datoteci "crisis.csv" za svaki tjedan iz prethodno učitanih povijesnih tjednih cijena možete pronaći je li tržište tada bilo u krizi ili ne - 1 predstavlja krizu, 0 predstavlja period bez krize. Učitajte nove podatke te ih spojite s tablicom povrata.
 ```{r}
