@@ -25,6 +25,7 @@ library(plotly)
 library(car)
 library('MASS')
 library(hrbrthemes)
+library(yardstick)
 ```
 
 
@@ -172,10 +173,17 @@ w2_price = Reduce(function(x,r) {x * (1+r)}, w2_returns, init=100, accumulate=T)
 chron_prices = data.frame(date = ETF.prices$Time, w1_price = w1_price, w2_price = w2_price)
 theme_set(theme_minimal())
 ggplot(chron_prices, aes(x=date)) + 
-  geom_line(aes(y = w1_price), color = "brown4") + 
-  geom_line(aes(y = w2_price), color="darkolivegreen4") +
+  geom_line(aes(y = w1_price, color = "w1") ) + 
+  geom_line(aes(y = w2_price, color="w2")) +
+  scale_color_manual(name = "Colors", 
+                     values = c("w1" = "brown4", "w2" = "darkolivegreen4")) + 
   scale_x_date(date_breaks = "1 year", date_labels ="%Y") +
   labs(title="Vrijednost prva dva svojstvena portfelja kroz vrijeme", y="Vrijednost ($)", x="time")
+
+print("w1:")
+print(w1)
+print("w2:")
+print(w2)
 ```
 
 ## 4. Faktorska analiza
@@ -273,10 +281,10 @@ fa3 = factanal(factors = 3, covmat = R,rotation="varimax")
 
 
 
-barplot(rbind(fa2$uniqueness,fa3$uniqueness, df_psi$psi), beside=TRUE, col=c("cornflowerblue", "bisque", "red"), main="Specifične varijance",ylab="Var", cex.axis = 0.75, cex.names = 0.45, cex.main=0.85, cex.lab=0.75)
+barplot(rbind(fa2$uniqueness,fa3$uniqueness), beside=TRUE, col=c("cornflowerblue", "bisque"), main="Specifične varijance",ylab="Var", cex.axis = 0.75, cex.names = 0.45, cex.main=0.85, cex.lab=0.75)
 legend("topright", 
        legend = c("2 Faktora","3 Faktora", "PCA"), 
-       fill = c("cornflowerblue", "bisque", "red"),
+       fill = c("cornflowerblue", "bisque"),
        cex = 0.65)
 
 ```
@@ -287,7 +295,17 @@ print(fa3$loadings)
 ## 5. Diskriminantna analiza
 Financijska tržišta su od listopada 2007. do srpnja 2009. godine bila u krizi. U datoteci "crisis.csv" za svaki tjedan iz prethodno učitanih povijesnih tjednih cijena možete pronaći je li tržište tada bilo u krizi ili ne - 1 predstavlja krizu, 0 predstavlja period bez krize. Učitajte nove podatke te ih spojite s tablicom povrata.
 ```{r}
-#  Vaš kôd ovdje 
+ETF.crisis = read.csv("crisis.csv")
+ETF.crisis$Time = as.Date(ETF.crisis$Time, "%d.%m.%Y")
+ETF.crisis <- ETF.crisis[-1,]
+
+dim(ETF.crisis)
+dim(ETF_returns)
+head(ETF.crisis)
+
+crisis <- ETF.crisis[,'Crisis']
+returns <- cbind(ETF_returns, crisis)
+head(returns)
 ```
 
 ### 5.1. Diskriminantna analiza pomoću povrata
@@ -295,7 +313,51 @@ Financijska tržišta su od listopada 2007. do srpnja 2009. godine bila u krizi.
 Provedite diskriminantnu analizu koja tjedne odvaja na krizne i one bez krize pomoću povrata fondova. Pomoću stupčastog dijagrama prikažite vektore srednjih vrijednosti u krizi i izvan nje. Također, na isti način prikažite korelaciju fonda AGG (Aggregate Bond ETF-a) s ostalim fondovima u krizi i izvan krize. Usporedite rezultate linearne diskriminantne analize (funkcija u R-u: `lda`) i kvadratne diskriminantne analize (funkcija u R-u: `qda`) pomoću tablica konfuzije i mjere APER (eng. apparent error rate). Razmislite o tome koji je razlog razlike u rezultatima ove dvije metode.
 
 ```{r}
-#  Vaš kôd ovdje 
+lda.fit <- lda(crisis ~ . - Time, data = returns)
+lda.fit
+```
+
+```{r}
+barplot(lda.fit$means, beside=TRUE, col=c("cornflowerblue", "coral"), main="Vektori srednjih vrijednosti dvaju populacija", cex.axis = 0.75, cex.names = 0.45, cex.main=0.85, cex.lab=0.75)
+legend("bottomleft", 
+       legend = c("bez krize","kriza"), 
+       fill = c("cornflowerblue", "coral"),
+       cex = 0.65)
+
+no_crisis_returns <- subset(returns[returns$crisis == 0,], select=-c(Time, crisis))
+crisis_returns    <- subset(returns[returns$crisis == 1,], select=-c(Time, crisis))
+
+cor_by_crisis_data <- rbind(cor(no_crisis_returns)["AGG", ], cor(crisis_returns)["AGG", ])
+
+barplot(cor_by_crisis_data, beside=TRUE, col=c("cornflowerblue", "coral"), main="Korelacije fonda AGG", cex.axis = 0.75, cex.names = 0.45, cex.main=0.85, cex.lab=0.75)
+legend("bottomleft", 
+       legend = c("bez krize","kriza"), 
+       fill = c("cornflowerblue", "coral"),
+       cex = 0.65)
+```
+#### Usporedba lda i qda
+```{r}
+lda.fit <- lda(crisis ~ . - Time, data = returns)
+lda.fit
+
+lda_conf <- t(table(predict(lda.fit,type="class")$class, returns$crisis))
+names(dimnames(lda_conf)) <- c('TRUE', 'PREDICTED')
+print("Confusion matrix")
+print(lda_conf)
+print("APER:")
+print((sum(lda_conf)-tr(lda_conf))/sum(lda_conf))
+```
+
+```{r}
+qda.fit <- qda(crisis ~ . - Time, data = returns)
+qda.fit
+
+qda_conf <- t(table(predict(qda.fit,type="class")$class, returns$crisis))
+names(dimnames(qda_conf)) <- c('TRUE', 'PREDICTED')
+print('Confusion Matrix:')
+print(qda_conf)
+print("APER:")
+print((sum(qda_conf)-tr(qda_conf))/sum(qda_conf))
 ```
 
 ### 5.2. Diskriminantna analiza pomoću glavnih komponenti
@@ -303,6 +365,75 @@ Provedite diskriminantnu analizu koja tjedne odvaja na krizne i one bez krize po
 Provedite diskriminantnu analizu kao u prošlom podzadatku, no ovaj put koristeći glavne komponente izračunate u 3. zadatku kao varijable. Provjerite i usporedite uspješnost klasifikacije koristeći tablice konfuzije i APER za različit broj komponenti. 
 
 ```{r} 
-#  Vaš kôd ovdje 
+just_returns <- subset(returns, select=-c(Time, crisis))
+
+compressed_ret_3 <- as.matrix(just_returns) %*% e_R[,1:3]
+compressed_ret_3 <- data.frame(cbind(compressed_ret_3, returns$crisis))
+names(compressed_ret_3)[ncol(compressed_ret_3)] <- c('crisis')
+
+compressed_ret_6 <- as.matrix(just_returns) %*% e_R[,1:6]
+compressed_ret_6 <- data.frame(cbind(compressed_ret_6, returns$crisis))
+names(compressed_ret_6)[ncol(compressed_ret_6)] <- c('crisis')
+
+compressed_ret_12 <- as.matrix(just_returns) %*% e_R[,1:12]
+compressed_ret_12 <- data.frame(cbind(compressed_ret_12, returns$crisis))
+names(compressed_ret_12)[ncol(compressed_ret_12)] <- c('crisis')
+
+compressed_ret_24 <- as.matrix(just_returns) %*% e_R[,1:24]
+compressed_ret_24 <- data.frame(cbind(compressed_ret_24, returns$crisis))
+names(compressed_ret_24)[ncol(compressed_ret_24)] <- c('crisis')
+
+
+head(compressed_ret_3)
+```
+
+```{r}
+qda3.fit <- qda(crisis ~ ., data = compressed_ret_3)
+qda3.fit
+
+qda3_conf <- t(table(predict(qda3.fit,type="class")$class, returns$crisis))
+names(dimnames(qda3_conf)) <- c('TRUE', 'PREDICTED')
+print('Confusion Matrix:')
+print(qda3_conf)
+```
+
+```{r}
+qda6.fit <- qda(crisis ~ ., data = compressed_ret_6)
+qda6.fit
+
+qda6_conf <- t(table(predict(qda6.fit,type="class")$class, returns$crisis))
+names(dimnames(qda6_conf)) <- c('TRUE', 'PREDICTED')
+print('Confusion Matrix:')
+print(qda6_conf)
+```
+
+```{r}
+qda12.fit <- qda(crisis ~ ., data = compressed_ret_12)
+qda12.fit
+
+qda12_conf <- t(table(predict(qda12.fit,type="class")$class, returns$crisis))
+names(dimnames(qda12_conf)) <- c('TRUE', 'PREDICTED')
+print('Confusion Matrix:')
+print(qda12_conf)
+```
+
+```{r}
+qda24.fit <- qda(crisis ~ ., data = compressed_ret_24)
+qda24.fit
+
+qda24_conf <- t(table(predict(qda24.fit,type="class")$class, returns$crisis))
+names(dimnames(qda24_conf)) <- c('TRUE', 'PREDICTED')
+print('Confusion Matrix:')
+print(qda24_conf)
+```
+
+```{r}
+apers <- c((sum(qda3_conf)-tr(qda3_conf))/sum(qda3_conf), (sum(qda6_conf)-tr(qda6_conf))/sum(qda6_conf), (sum(qda12_conf)-tr(qda12_conf))/sum(qda12_conf), (sum(qda24_conf)-tr(qda24_conf))/sum(qda24_conf))
+
+midpts <- barplot(apers, col="#69b3a2", main="APER metric of qda models", xlab="Number of PCA components")
+axis(1, at = midpts, labels=c('3', '6', '12', '24'), cex.axis=0.9) # shrinks axis labels
+grid(nx=NA, ny=NULL)
+
+print(apers)
 ```
 
